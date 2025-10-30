@@ -1,12 +1,15 @@
 <?php
 
+use App\Core\Env;
 use App\Core\Request;
 use App\Core\Response;
 use App\Core\Router;
 
 require __DIR__ . '/../vendor/autoload.php';
 
-$request  = Request::capture();
+Env::load(__DIR__ . '/../.env'); //load the env file
+
+$request  = Request::capture(); // capture the request from the global variables
 
 $router = new Router();
 require __DIR__ . '/../routes/api.php';

@@ -32,7 +32,9 @@ final class Request
     /** Capture from PHP superglobals */
     public static function capture(): self
     {
-        return new self($_SERVER, $_GET, $_POST, $_COOKIE, $_FILES);
+        $inst = new self($_SERVER, $_GET, $_POST, $_COOKIE, $_FILES);
+        $inst->setRawBody((string)file_get_contents('php://input'));
+        return $inst;
     }
 
     public function method(): string
@@ -158,7 +160,11 @@ final class Request
 
     public function isJson(): bool
     {
-        return strtolower($this->contentType()) === 'application/json';
+        $ct = strtolower((string)$this->header('Content-Type', ''));
+        return $ct === 'application/json'
+            || str_starts_with($ct, 'application/json') // handles "; charset=utf-8"
+            || str_ends_with($ct, '+json')              // e.g. merge-patch+json
+            || $ct === 'text/json';
     }
 
     public function json(): array
@@ -185,17 +191,23 @@ final class Request
     {
         if ($this->formBody !== null) return $this->formBody;
 
-        $ct = strtolower($this->contentType());
-        $method = $this->method();
+        $ctRaw       = strtolower((string)$this->header('Content-Type', ''));
+        $isUrlEnc    = str_starts_with($ctRaw, 'application/x-www-form-urlencoded');
+        $isMultipart = str_starts_with($ctRaw, 'multipart/form-data');
 
-        if ($method === 'POST' && ($ct === 'application/x-www-form-urlencoded' || str_starts_with($ct, 'multipart/form-data'))) {
-            return $this->formBody = $this->post;
+        $original = strtoupper($this->server['REQUEST_METHOD'] ?? 'GET'); // transport method
+
+        if ($original === 'POST' && ($isUrlEnc || $isMultipart)) {
+            $arr = $this->post;
+            unset($arr['_method']);
+            return $this->formBody = $arr;
         }
 
-        if ($ct === 'application/x-www-form-urlencoded') {
+        if ($isUrlEnc) {
             $raw = $this->body();
             $arr = [];
             if ($raw !== '') parse_str($raw, $arr);
+            unset($arr['_method']);
             return $this->formBody = is_array($arr) ? $arr : [];
         }
 
@@ -209,6 +221,38 @@ final class Request
         if ($json) $merged = array_replace($merged, $json);
         if ($key === null) return $merged;
         return $merged[$key] ?? $default;
+    }
+
+    /**
+     * Unified request data with method-aware precedence.
+     * - GET: query overrides body on key conflicts.
+     * - Others: body (JSON > form) overrides query.
+     */
+    public function getData(?string $key = null, $default = null)
+    {
+        // Build body: form then JSON (JSON wins over form)
+        $body = $this->form();
+        $json = $this->json();
+        if ($json) $body = array_replace($body, $json);
+
+        $query = $this->get;
+
+        // Decide precedence by method
+        if ($this->isGet()) {
+            // GET: query > body
+            $merged = array_replace($body, $query);
+        } else {
+            // Non-GET: body > query
+            $merged = array_replace($query, $body);
+        }
+
+        if ($key === null) return $merged;
+        return $merged[$key] ?? $default;
+    }
+
+    public function getFiles(): array
+    {
+        return $this->files();
     }
 
     public function file(string $name): ?array { return $this->files[$name] ?? null; }
@@ -238,7 +282,6 @@ final class Request
     public function getCookies(): array { return $this->cookies; }
     public function setCookies(array $cookies): self { $this->cookies = $cookies; return $this; }
 
-    public function getFiles(): array { return $this->files; }
     public function setFiles(array $files): self { $this->files = $files; return $this; }
 
     public function getHeaders(): array { return $this->headers(); } // build if needed
@@ -254,5 +297,16 @@ final class Request
         $name = str_replace('_', ' ', $name);
         $name = ucwords(strtolower($name));
         return str_replace(' ', '-', $name);
+    }
+
+    private function originalMethod(): string
+    {
+        return strtoupper($this->server['REQUEST_METHOD'] ?? 'GET');
+    }
+
+    private function stripMethodOverride(array $arr): array
+    {
+        if (array_key_exists('_method', $arr)) unset($arr['_method']);
+        return $arr;
     }
 }
