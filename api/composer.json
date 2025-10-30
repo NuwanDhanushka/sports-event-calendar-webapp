@@ -1,0 +1,10 @@
+{
+  "name": "nuwandanushka/sports-event-api",
+  "type": "project",
+  "autoload": {
+    "psr-4": {
+      "App\\": "src/"
+    }
+  },
+  "require": {}
+}
