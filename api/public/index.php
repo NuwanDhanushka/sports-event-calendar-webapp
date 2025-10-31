@@ -2,12 +2,15 @@
 
 use App\Core\ApiAuth;
 use App\Core\Env;
+use App\Core\Logger;
 use App\Core\Request;
 use App\Core\Response;
 use App\Core\Router;
 use App\Core\Session;
 
 require __DIR__ . '/../vendor/autoload.php'; // autoload the classes
+
+Logger::init(); //init the logger
 
 Env::load(__DIR__ . '/../.env'); //load the env file
 

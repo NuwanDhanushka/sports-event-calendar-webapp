@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\V1;
 use App\Core\Env;
+use App\Core\Logger;
 use App\Core\Permission;
 use App\Core\Request;
 use App\Core\Response;
@@ -18,6 +19,8 @@ class EventController
         $storagePath = Env::get('STORAGE_PUBLIC_BASE','/storage/');
 
         $result = Event::list($limit, $offset);
+
+        Logger::debug('Payload received', ['body' => []]);
 
         return new Response(200, 'Event list', true, [
             'events' => $result['data'],
