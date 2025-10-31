@@ -35,7 +35,7 @@ class Database {
         $pass    = $pass    ?? Env::get('DB_PASS', '');
         $charset = $charset ?? Env::get('DB_CHARSET', 'utf8mb4');
 
-        $dsn = "mysql:host={$host};port={$port};dbname={$name};charset={$charset}";
+        $dsn = "mysql:host=$host;port=$port;dbname=$name;charset=$charset";
         $opts = [
             PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
@@ -76,7 +76,7 @@ class Database {
     public function bindAll(array $params): self
     {
         foreach ($params as $k => $v) {
-            $this->bind(is_int($k) ? $k : (str_starts_with((string)$k, ':') ? $k : (':'.$k)), $v);
+            $this->bind(is_int($k) ? $k : (str_starts_with($k, ':') ? $k : (':'.$k)), $v);
         }
         return $this;
     }

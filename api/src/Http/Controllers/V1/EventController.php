@@ -1,6 +1,7 @@
 <?php
 
 namespace App\Http\Controllers\V1;
+use App\Core\Permission;
 use App\Core\Request;
 use App\Core\Response;
 use App\Models\Event;
@@ -31,13 +32,17 @@ class EventController
         $id = (int)($params['id'] ?? 0);
         $eventData = $id ? Event::find($id) : null;
         return $eventData
-            ? new Response(200, 'Event Data', true, ['data' => ['id'=>$eventData->id, 'title'=>$eventData->title]])
+            ? new Response(200, 'Event Data', true, ['data' => ['id'=>$eventData->getId(), 'title'=>$eventData->getTitle()]])
             : new Response(404, 'Not Found', false, ['error' => 'not_found']);
     }
 
     public function store(Request $req, array $params): Response
     {
         $requestData = $req->getData();
+
+        if (!Permission::has('event_create')) {
+            return new Response(403, 'Permission denied', false);
+        }
 
         if (empty($requestData['title'])) {
             return new Response(422, 'Validation failed', false, ['missing'=>['title']]);
@@ -49,6 +54,10 @@ class EventController
 
     public function update(Request $req, array $params): Response
     {
+        if (!Permission::has('event_update')) {
+            return new Response(403, 'Permission denied', false);
+        }
+
         $id = (int)($params['id'] ?? 0);
 
         if ($id <= 0) {
@@ -63,6 +72,10 @@ class EventController
 
     public function destroy(Request $req, array $params): Response
     {
+        if (!Permission::has('event_delete')) {
+            return new Response(403, 'Permission denied', false);
+        }
+
         $id = (int)($params['id'] ?? 0);
 
         if ($id <= 0) {

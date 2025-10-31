@@ -185,7 +185,7 @@ final class Request
      * Form data:
      * - POST: returns $_POST for urlencoded/multipart.
      * - PUT/PATCH/DELETE urlencoded: parse raw body.
-     * - Multipart on PUT/PATCH isn’t parsed by PHP; prefer POST + _method or JSON.
+     * - PHP doesn’t parse multipart on PUT/PATCH; prefer POST + _method or JSON.
      */
     public function form(): array
     {
@@ -226,7 +226,7 @@ final class Request
     /**
      * Unified request data with method-aware precedence.
      * - GET: query overrides body on key conflicts.
-     * - Others: body (JSON > form) overrides query.
+     * - Others: body (JSON > form) overrides a query.
      */
     public function getData(?string $key = null, $default = null)
     {
@@ -299,14 +299,4 @@ final class Request
         return str_replace(' ', '-', $name);
     }
 
-    private function originalMethod(): string
-    {
-        return strtoupper($this->server['REQUEST_METHOD'] ?? 'GET');
-    }
-
-    private function stripMethodOverride(array $arr): array
-    {
-        if (array_key_exists('_method', $arr)) unset($arr['_method']);
-        return $arr;
-    }
 }

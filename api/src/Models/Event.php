@@ -5,8 +5,8 @@ use App\Core\Database;
 
 class Event
 {
-    public int $id;
-    public string $title;
+    private int $id;
+    private string $title;
 
     public function __construct(array $data = []) {
         if (array_key_exists('id', $data))    $this->id = (int)$data['id'];
@@ -60,13 +60,13 @@ class Event
     /** List with pagination */
     public static function list(int $limit = 20, int $offset = 0): array
     {
-        $limit  = max(1, min(100, (int)$limit));
-        $offset = max(0, (int)$offset);
+        $limit  = max(1, min(100, $limit));
+        $offset = max(0, $offset);
 
         $db    = new Database();
         $total = (int)$db->query('SELECT COUNT(*) FROM events')->value();
 
-        // Using int-cast interpolation for LIMIT/OFFSET (compatible with native prepares)
+        // Using int-cast interpolation for LIMIT/OFFSET (compatible with native preparing)
         $rows = $db->query("SELECT id, title FROM events ORDER BY id DESC LIMIT :limit OFFSET :offset")
             ->bind(':limit', $limit)
             ->bind(':offset', $offset)
@@ -100,6 +100,28 @@ class Event
         $db->execute();
         return $db->rowCount();
     }
+
+    public function getId(): int
+    {
+        return $this->id;
+    }
+
+    public function setId(int $id): void
+    {
+        $this->id = $id;
+    }
+
+    public function getTitle(): string
+    {
+        return $this->title;
+    }
+
+    public function setTitle(string $title): void
+    {
+        $this->title = $title;
+    }
+
+
 
     //add validation
 

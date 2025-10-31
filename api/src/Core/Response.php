@@ -35,7 +35,7 @@ class Response
 
         http_response_code($this->httpStatus);
         foreach ($this->headers as $k => $v) {
-            header("$k: $v", true);
+            header("$k: $v");
         }
 
         $payload = [
@@ -62,7 +62,7 @@ class Response
             );
         }
 
-        header('Content-Length: ' . strlen($json), true);
+        header('Content-Length: ' . strlen($json));
         echo $json;
         exit;
     }
