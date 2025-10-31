@@ -13,6 +13,7 @@ final class Request
     private ?string $rawBody  = null;
     private ?array  $jsonBody = null;
     private ?array  $formBody = null;
+    private ?array $filesNormalized = null;
     private array   $attributes = [];
 
     public function __construct(
@@ -255,8 +256,57 @@ final class Request
         return $this->files();
     }
 
-    public function file(string $name): ?array { return $this->files[$name] ?? null; }
-    public function files(): array { return $this->files; }
+    public function file(string $field): ?array
+    {
+        $all = $this->files();
+        return $all[$field][0] ?? null;
+    }
+
+    public function filesOf(string $field): array
+    {
+        $all = $this->files();
+        return $all[$field] ?? [];
+    }
+
+    public function files(): array
+    {
+        if ($this->filesNormalized !== null) return $this->filesNormalized;
+        $src = is_array($this->files) ? $this->files : [];
+        return $this->filesNormalized = self::normalizeFilesArray($src);
+    }
+
+    private static function normalizeFilesArray(array $files): array
+    {
+        $out = [];
+        foreach ($files as $field => $spec) {
+            // Single upload
+            if (is_string($spec['name'] ?? null)) {
+                $out[$field] = [[
+                    'name'     => $spec['name'],
+                    'type'     => $spec['type']     ?? '',
+                    'tmp_name' => $spec['tmp_name'] ?? '',
+                    'error'    => $spec['error']    ?? UPLOAD_ERR_NO_FILE,
+                    'size'     => $spec['size']     ?? 0,
+                ]];
+                continue;
+            }
+
+            // Multiple upload: name[], type[], ...
+            $count = count($spec['name'] ?? []);
+            $out[$field] = [];
+            for ($i = 0; $i < $count; $i++) {
+                $out[$field][] = [
+                    'name'     => $spec['name'][$i]     ?? '',
+                    'type'     => $spec['type'][$i]     ?? '',
+                    'tmp_name' => $spec['tmp_name'][$i] ?? '',
+                    'error'    => $spec['error'][$i]    ?? UPLOAD_ERR_NO_FILE,
+                    'size'     => $spec['size'][$i]     ?? 0,
+                ];
+            }
+        }
+        return $out;
+    }
+
 
     public function withAttr(string $key, $value): self
     {
@@ -282,7 +332,11 @@ final class Request
     public function getCookies(): array { return $this->cookies; }
     public function setCookies(array $cookies): self { $this->cookies = $cookies; return $this; }
 
-    public function setFiles(array $files): self { $this->files = $files; return $this; }
+    public function setFiles(array $files): self {
+        $this->files = $files;
+        $this->filesNormalized = null;
+        return $this;
+    }
 
     public function getHeaders(): array { return $this->headers(); } // build if needed
     public function setHeaders(array $headers): self { $this->headers = $headers; return $this; }
