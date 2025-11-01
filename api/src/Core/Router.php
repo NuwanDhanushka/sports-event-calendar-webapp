@@ -39,15 +39,31 @@ class Router{
         return null;
     }
 
+    /**
+     * Turn a route like "/users/{id}/posts/{slug}" into:
+     *   [ '#^/users/([A-Za-z0-9\-_]+)/posts/([A-Za-z0-9\-_]+)$#', ['id', 'slug'] ]
+     */
     private function compile(string $path): array
     {
-        $keys = [];
-        $regex = preg_replace_callback('#\{([A-Za-z_][A-Za-z0-9_]*)\}#', function ($m) use (&$keys) {
-            $keys[] = $m[1];
-            return '([A-Za-z0-9\-_]+)';
-        }, str_replace('/', '\/', rtrim($path, '/')));
+        // 1) Normalize: remove trailing slash but keep "/" as-is
+        $path = rtrim($path, '/');
+        if ($path === '') $path = '/';
 
+        // 2) Collect placeholder keys: {name}
+        preg_match_all('/\{([A-Za-z_][A-Za-z0-9_]*)\}/', $path, $m);
+        $keys = $m[1];
+
+        // 3) Escape the whole string for regex (except our braces), then
+        //    replace each "{name}" with a capturing group.
+        $escaped = preg_quote($path, '#');
+        // Replace the *escaped* "{name}" tokens like "\{name\}" with our group
+        $regex = preg_replace(
+            '/\\\\\{[A-Za-z_][A-Za-z0-9_]*\\\\\}/',
+            '([A-Za-z0-9\-_]+)',
+            $escaped
+        );
+
+        // 4) Anchor and return
         return ['#^' . $regex . '$#', $keys];
     }
-
 }

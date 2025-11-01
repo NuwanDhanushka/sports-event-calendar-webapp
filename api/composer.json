@@ -6,5 +6,8 @@
       "App\\": "src/"
     }
   },
-  "require": {}
+  "require": {
+    "ext-pdo": "*",
+    "ext-fileinfo": "*"
+  }
 }

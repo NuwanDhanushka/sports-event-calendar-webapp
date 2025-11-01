@@ -1,12 +1,24 @@
 <?php
 
+use App\Core\ApiAuth;
+use App\Core\Env;
+use App\Core\Logger;
 use App\Core\Request;
 use App\Core\Response;
 use App\Core\Router;
+use App\Core\Session;
 
-require __DIR__ . '/../vendor/autoload.php';
+require __DIR__ . '/../vendor/autoload.php'; // autoload the classes
 
-$request  = Request::capture();
+Logger::init(); //init the logger
+
+Env::load(__DIR__ . '/../.env'); //load the env file
+
+Session::start(); // start the session
+
+$request  = Request::capture(); // capture the request from the global variables
+
+ApiAuth::requireApiKey($request); // api key gate
 
 $router = new Router();
 require __DIR__ . '/../routes/api.php';

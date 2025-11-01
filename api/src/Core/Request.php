@@ -13,6 +13,7 @@ final class Request
     private ?string $rawBody  = null;
     private ?array  $jsonBody = null;
     private ?array  $formBody = null;
+    private ?array $filesNormalized = null;
     private array   $attributes = [];
 
     public function __construct(
@@ -32,7 +33,9 @@ final class Request
     /** Capture from PHP superglobals */
     public static function capture(): self
     {
-        return new self($_SERVER, $_GET, $_POST, $_COOKIE, $_FILES);
+        $inst = new self($_SERVER, $_GET, $_POST, $_COOKIE, $_FILES);
+        $inst->setRawBody((string)file_get_contents('php://input'));
+        return $inst;
     }
 
     public function method(): string
@@ -158,7 +161,11 @@ final class Request
 
     public function isJson(): bool
     {
-        return strtolower($this->contentType()) === 'application/json';
+        $ct = strtolower((string)$this->header('Content-Type', ''));
+        return $ct === 'application/json'
+            || str_starts_with($ct, 'application/json') // handles "; charset=utf-8"
+            || str_ends_with($ct, '+json')              // e.g. merge-patch+json
+            || $ct === 'text/json';
     }
 
     public function json(): array
@@ -179,23 +186,29 @@ final class Request
      * Form data:
      * - POST: returns $_POST for urlencoded/multipart.
      * - PUT/PATCH/DELETE urlencoded: parse raw body.
-     * - Multipart on PUT/PATCH isn’t parsed by PHP; prefer POST + _method or JSON.
+     * - PHP doesn’t parse multipart on PUT/PATCH; prefer POST + _method or JSON.
      */
     public function form(): array
     {
         if ($this->formBody !== null) return $this->formBody;
 
-        $ct = strtolower($this->contentType());
-        $method = $this->method();
+        $ctRaw       = strtolower((string)$this->header('Content-Type', ''));
+        $isUrlEnc    = str_starts_with($ctRaw, 'application/x-www-form-urlencoded');
+        $isMultipart = str_starts_with($ctRaw, 'multipart/form-data');
 
-        if ($method === 'POST' && ($ct === 'application/x-www-form-urlencoded' || str_starts_with($ct, 'multipart/form-data'))) {
-            return $this->formBody = $this->post;
+        $original = strtoupper($this->server['REQUEST_METHOD'] ?? 'GET'); // transport method
+
+        if ($original === 'POST' && ($isUrlEnc || $isMultipart)) {
+            $arr = $this->post;
+            unset($arr['_method']);
+            return $this->formBody = $arr;
         }
 
-        if ($ct === 'application/x-www-form-urlencoded') {
+        if ($isUrlEnc) {
             $raw = $this->body();
             $arr = [];
             if ($raw !== '') parse_str($raw, $arr);
+            unset($arr['_method']);
             return $this->formBody = is_array($arr) ? $arr : [];
         }
 
@@ -211,8 +224,89 @@ final class Request
         return $merged[$key] ?? $default;
     }
 
-    public function file(string $name): ?array { return $this->files[$name] ?? null; }
-    public function files(): array { return $this->files; }
+    /**
+     * Unified request data with method-aware precedence.
+     * - GET: query overrides body on key conflicts.
+     * - Others: body (JSON > form) overrides a query.
+     */
+    public function getData(?string $key = null, $default = null)
+    {
+        // Build body: form then JSON (JSON wins over form)
+        $body = $this->form();
+        $json = $this->json();
+        if ($json) $body = array_replace($body, $json);
+
+        $query = $this->get;
+
+        // Decide precedence by method
+        if ($this->isGet()) {
+            // GET: query > body
+            $merged = array_replace($body, $query);
+        } else {
+            // Non-GET: body > query
+            $merged = array_replace($query, $body);
+        }
+
+        if ($key === null) return $merged;
+        return $merged[$key] ?? $default;
+    }
+
+    public function getFiles(): array
+    {
+        return $this->files();
+    }
+
+    public function file(string $field): ?array
+    {
+        $all = $this->files();
+        return $all[$field][0] ?? null;
+    }
+
+    public function filesOf(string $field): array
+    {
+        $all = $this->files();
+        return $all[$field] ?? [];
+    }
+
+    public function files(): array
+    {
+        if ($this->filesNormalized !== null) return $this->filesNormalized;
+        $src = is_array($this->files) ? $this->files : [];
+        return $this->filesNormalized = self::normalizeFilesArray($src);
+    }
+
+    private static function normalizeFilesArray(array $files): array
+    {
+        $out = [];
+        foreach ($files as $field => $spec) {
+            // Single upload
+            if (is_string($spec['name'] ?? null)) {
+                $out[$field] = [[
+                    'name'     => $spec['name'],
+                    'type'     => $spec['type']     ?? '',
+                    'tmp_name' => $spec['tmp_name'] ?? '',
+                    'error'    => $spec['error']    ?? UPLOAD_ERR_NO_FILE,
+                    'size'     => $spec['size']     ?? 0,
+                ]];
+                continue;
+            }
+
+            // Multiple upload: name[], type[], ...
+            $count = count($spec['name'] ?? []);
+            $out[$field] = [];
+            for ($i = 0; $i < $count; $i++) {
+                $out[$field][] = [
+                    'name'     => $spec['name'][$i]     ?? '',
+                    'type'     => $spec['type'][$i]     ?? '',
+                    'tmp_name' => $spec['tmp_name'][$i] ?? '',
+                    'error'    => $spec['error'][$i]    ?? UPLOAD_ERR_NO_FILE,
+                    'size'     => $spec['size'][$i]     ?? 0,
+                ];
+            }
+        }
+        return $out;
+    }
+
 
     public function withAttr(string $key, $value): self
     {
@@ -238,8 +332,11 @@ final class Request
     public function getCookies(): array { return $this->cookies; }
     public function setCookies(array $cookies): self { $this->cookies = $cookies; return $this; }
 
-    public function getFiles(): array { return $this->files; }
-    public function setFiles(array $files): self { $this->files = $files; return $this; }
+    public function setFiles(array $files): self {
+        $this->files = $files;
+        $this->filesNormalized = null;
+        return $this;
+    }
 
     public function getHeaders(): array { return $this->headers(); } // build if needed
     public function setHeaders(array $headers): self { $this->headers = $headers; return $this; }
@@ -255,4 +352,5 @@ final class Request
         $name = ucwords(strtolower($name));
         return str_replace(' ', '-', $name);
     }
+
 }
