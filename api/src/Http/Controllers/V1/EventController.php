@@ -19,17 +19,16 @@ class EventController
         $storagePath = Env::get('STORAGE_PUBLIC_BASE','/storage/');
 
         $result = Event::list($limit, $offset);
-
-        Logger::debug('Payload received', ['body' => []]);
+        [$items, $total] = [ $result['data'], $result['total'] ];
 
         return new Response(200, 'Event list', true, [
-            'events' => $result['data'],
+            'events' => array_map(fn(Event $e) => $e->toArray(), $items),
             'meta' => [
                 'page'  => $page,
                 'limit' => $limit,
-                'total' => $result['total'],
-                'pages' => (int)ceil($result['total'] / max(1,$limit)),
-                'storage_public_base' => $storagePath,
+                'total' => $total,
+                'pages' => (int)ceil($total / max(1,$limit)),
+                'storagePublicBase' => $storagePath,
             ],
         ]);
     }
