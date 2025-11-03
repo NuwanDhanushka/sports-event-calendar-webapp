@@ -32,6 +32,19 @@ class Event
     }
 
     /**
+     * Return an array representation of the event
+     * @return array
+     */
+    public function toArray(): array
+    {
+        return [
+            'id'         => $this->id,
+            'title'      => $this->title,
+            'bannerPath' => $this->bannerPath,
+        ];
+    }
+
+    /**
      * Create a new event
      * @param array $data
      * @return int
@@ -84,7 +97,8 @@ class Event
             ->bind(':offset', $offset)
             ->results();
 
-        return ['data' => $rows, 'total' => $total];
+        $events = array_map(fn($r)=>Event::fromRow($r), $rows);
+        return ['data' => $events, 'total' => $total];
     }
 
     /** Update title; returns affected rows */
