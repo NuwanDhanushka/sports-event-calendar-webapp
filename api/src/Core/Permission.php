@@ -4,10 +4,10 @@ namespace App\Core;
 
 class Permission
 {
-    public static function has(string $permissionKey): bool
+    public static function has(string $permission): bool
     {
         $permissionArray = Session::get('permissions', []);
-        return in_array($permissionKey, $permissionArray, true);
+        return in_array($permission, $permissionArray, true);
     }
 
     public static function getPermissionsForUser(int $userId): array
@@ -18,16 +18,16 @@ class Permission
 
         $database = new Database();
         $database->query(
-            'SELECT DISTINCT p.`key`
+            'SELECT DISTINCT p.name
                    FROM user_roles ur
-                   JOIN permissions_roles pr ON pr.role_id = ur.role_id
+                   JOIN role_permissions pr ON pr.role_id = ur.role_id
                    JOIN permissions p      ON p.id = pr.permission_id
                   WHERE ur.user_id = :userId'
         );
         $database->bind(':userId', $userId);
         $permissionsArray = $database->results();
 
-        $permissionsArray = array_map(fn($r) => (string)$r['key'], $permissionsArray);
+        $permissionsArray = array_map(fn($r) => (string)$r['name'], $permissionsArray);
 
         Session::set('permissions', $permissionsArray);
         return $permissionsArray;
