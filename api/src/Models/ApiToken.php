@@ -49,7 +49,7 @@ class ApiToken {
     public static function listAll(): array
     {
         return (new Database())
-            ->query('SELECT id, genrated_by FROM api_tokens ORDER BY id DESC')
+            ->query('SELECT id, generated_by FROM api_tokens ORDER BY id DESC')
             ->results();
     }
 

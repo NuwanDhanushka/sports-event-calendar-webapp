@@ -13,10 +13,60 @@ class EventController
 {
     public function index(Request $req, array $params): Response
     {
+        $storagePath = Env::get('STORAGE_PUBLIC_BASE','/storage/');
+
+        $dateFrom = trim((string)$req->query('date_from', ''));
+        $dateTo   = trim((string)$req->query('date_to', ''));
+
+        // normalize sports param: supports sports[]=1&sports[]=4 OR sports=1,4
+        $sportsParam = $req->query('sports', []);
+        if (is_string($sportsParam)) {
+            $sportsParam = array_filter(array_map('trim', explode(',', $sportsParam)), fn($v)=>$v!=='');
+        } elseif (!is_array($sportsParam)) {
+            $sportsParam = [$sportsParam];
+        }
+
+        $q = trim((string)$req->query('q', ''));
+
+        $hasRangeParams  = ($dateFrom !== '' || $dateTo !== '');
+        $hasFilterParams = ($q !== '' || !empty($sportsParam));
+
+        // If any filter/range param is present use range mode with open-ended defaults
+        if ($hasRangeParams || $hasFilterParams) {
+            // open-ended bounds if missing
+            if ($dateFrom === '') $dateFrom = '0001-01-01 00:00:00';
+            if ($dateTo   === '') $dateTo   = '9999-12-31 23:59:59';
+
+            // expand 10-char dates to full-day
+            if (strlen($dateFrom) === 10) $dateFrom .= ' 00:00:00';
+            if (strlen($dateTo)   === 10) $dateTo   .= ' 23:59:59';
+
+            if ($dateFrom > $dateTo) {
+                [$dateFrom, $dateTo] = [$dateTo, $dateFrom];
+            }
+
+            $filters = [
+                'q'      => $q,
+                'sports' => $sportsParam,  // array of ids and/or names
+            ];
+
+            $items = Event::filterEvents($dateFrom, $dateTo, $filters);
+
+            return new Response(200, 'Events in range', true, [
+                'events' => array_map(fn(Event $e) => $e->toArray(), $items),
+                'meta' => [
+                    'mode'  => 'range',
+                    'date_from' => $dateFrom,
+                    'date_to'   => $dateTo,
+                    'count' => count($items),
+                    'storagePublicBase' => $storagePath,
+                ],
+            ]);
+        }
+
         $limit  = max(1, min(100, (int)$req->query('limit', 20)));
         $page   = max(1, (int)$req->query('page', 1));
         $offset = ($page - 1) * $limit;
-        $storagePath = Env::get('STORAGE_PUBLIC_BASE','/storage/');
 
         $result = Event::list($limit, $offset);
         [$items, $total] = [ $result['data'], $result['total'] ];
@@ -42,9 +92,7 @@ class EventController
             ? new Response(200, 'Event Data', true,
                 ['data' =>
                         [
-                            'id'=>$eventData->getId(),
-                            'title'=>$eventData->getTitle(),
-                            'event_banner'=>$eventData->getBannerPath(),
+                            'event'=>$eventData->toArray(),
                             'meta' => [
                                 'storage_public_base' => $storagePath,
                             ]

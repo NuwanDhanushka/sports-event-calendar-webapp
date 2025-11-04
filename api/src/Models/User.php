@@ -137,6 +137,27 @@ class User
         return password_verify($password, $user->password_hash) ? $user : null;
     }
 
+    public static function fromArray(?array $data): ?self
+    {
+        if (!$data) return null;
+        return new self([
+            'id'        => $data['id']    ?? null,
+            'name'      => $data['name']  ?? null,
+            'email'     => $data['email'] ?? null,
+            'is_active' => $data['is_active'] ?? 1,
+        ]);
+    }
+
+    public function toArray(): array
+    {
+        return [
+            'id'       => $this->getId(),
+            'name'     => $this->getName(),
+            'email'    => $this->getEmail(),
+            'isActive' => (bool)$this->getIsActive(),
+        ];
+    }
+
     public function getId(): int
     {
         return $this->id;
