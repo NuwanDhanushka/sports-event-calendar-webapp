@@ -1,7 +1,9 @@
 <script setup>
-import {computed, ref} from "vue";
+import {computed, onMounted, ref, watch} from "vue";
 import InputCalendar from "../components/InputCalendar.vue";
 import moment from "moment-timezone";
+import {listEvents} from "../api/events.js";
+import {listSports} from "../api/sports.js";
 
 const timeZone = "Europe/Vienna";
 
@@ -12,6 +14,13 @@ const viewMonth = ref(today.month()); // 0–11
 
 const viewMode = ref('month');        // 'month' | 'week' | 'day'
 const selectedDayKey = ref('');       // 'YYYY-MM-DD'
+
+//Filters
+const searchText = ref('');
+const globalEvents = ref(false);
+const globalLabel = computed(() =>
+    globalEvents.value ? 'All events' : 'Only in current view'
+);
 
 // selection states
 const selectedSports = ref([]);       // ['Run', 'Football']
@@ -45,35 +54,6 @@ const headerText = computed(() => {
   if (viewMode.value === 'week') return weekTitle.value;
   return dayTitle.value;
 });
-
-//Mock date for testing
-const MOCK_EVENTS = [
-  {
-    id: 101,
-    title: "Vienna City Marathon Expo",
-    start_at: "2025-11-01T10:00:00+01:00",
-    end_at: "2025-11-01T18:00:00+01:00",
-    category: "Run",
-    status: "confirmed",
-    color: "accent"
-  },
-  {
-    id: 102,
-    title: "Regional Football Finals",
-    date: "2025-11-12",
-    all_day: true,
-    category: "Football",
-    status: "tentative"
-  },
-  {
-    id: 103,
-    title: "Basketball Cup",
-    start_at: "2025-11-20T18:00:00+01:00",
-    end_at: "2025-11-20T21:00:00+01:00",
-    category: "Basketball",
-    status: "confirmed"
-  },
-];
 
 //normalize event data for the view
 function normalizeEvent(e) {
@@ -113,11 +93,125 @@ function normalizeEvent(e) {
   };
 }
 
-const rawEvents = ref(MOCK_EVENTS);
+const rawEvents = ref([]);
+const loading = ref(false);
+const apiError = ref("");
+const storagePublicBase = ref("/storage/");
+
+function viewDateRange() {
+  if (viewMode.value === "day") {
+    const m = moment.tz(selectedKeyOrFirst.value, "YYYY-MM-DD", timeZone);
+    return { from: m.clone().startOf("day"), to: m.clone().endOf("day") };
+  }
+  if (viewMode.value === "week") {
+    const start = moment
+        .tz(selectedKeyOrFirst.value, "YYYY-MM-DD", timeZone)
+        .startOf("isoWeek");
+    const end = start.clone().endOf("isoWeek");
+    return { from: start, to: end };
+  }
+
+  const first = moment.tz(
+      { year: viewYear.value, month: viewMonth.value, date: 1 },
+      timeZone
+  );
+  const start = first.clone().startOf("isoWeek");
+  const end = first.clone().endOf("month").endOf("isoWeek");
+  return { from: start, to: end };
+}
+
+function mapApiEvent(api) {
+  const startIso = api.startAt ? moment.tz(api.startAt, "YYYY-MM-DD HH:mm:ss", timeZone).toISOString() : null;
+  const endIso   = api.endAt   ? moment.tz(api.endAt,   "YYYY-MM-DD HH:mm:ss", timeZone).toISOString() : null;
+
+  return {
+    id: api.id,
+    title: api.title,
+    start_at: startIso,
+    end_at: endIso,
+    status: api.status,
+
+    category: api.sport?.name || null,
+    sport_id: api.sport?.id ?? null,
+
+    all_day: !!api.date && !api.startAt && !api.endAt,
+    date: api.date ?? null,
+
+    venue: api.venue || null,
+    teams: api.teams || [],
+    competition: api.competition || null,
+    created_by: api.createdBy || null,
+  };
+}
+
+function currentParamsForAPI() {
+  const params = {};
+
+  if (!globalEvents.value) {
+    let from, to;
+    if (dateRange.value) {
+      const s = typeof dateRange.value === 'string'
+          ? (dateRange.value.split('/')[0] || '')
+          : (dateRange.value.start || '');
+      const e = typeof dateRange.value === 'string'
+          ? (dateRange.value.split('/')[1] || '')
+          : (dateRange.value.end || '');
+      from = s || null;
+      to   = e || null;
+    }
+    if (!from || !to) {
+      const { from: vFrom, to: vTo } = viewDateRange();
+      from = vFrom.format('YYYY-MM-DD');
+      to   = vTo.format('YYYY-MM-DD');
+    }
+    params.date_from = from;
+    params.date_to   = to;
+  }
+
+  const q = (searchText.value || '').trim();
+  if (q) params.q = q;
+
+  if (selectedSports.value?.length) {
+    params.sports = selectedSports.value; // ids
+  }
+  return params;
+}
+
+async function fetchEventsForCurrentView() {
+  loading.value = true;
+  apiError.value = "";
+  try {
+    const params = currentParamsForAPI();
+    const res = await listEvents(params);
+    const payload = res?.data ?? res;
+
+    const events = (payload?.data?.events || payload?.events || []).map(mapApiEvent);
+    rawEvents.value = events;
+
+    const meta = payload?.data?.meta || payload?.meta || {};
+    if (meta.storagePublicBase) storagePublicBase.value = meta.storagePublicBase;
+  } catch (e) {
+    apiError.value = String(e?.message || e);
+  } finally {
+    loading.value = false;
+  }
+}
+
+
+onMounted(async () => {
+  await fetchSports();
+  await fetchEventsForCurrentView();
+});
+
+let tick;
+watch(
+    [viewYear, viewMonth, viewMode, selectedDayKey, searchText, selectedSports, dateRange, globalEvents],
+    () => { clearTimeout(tick); tick = setTimeout(fetchEventsForCurrentView, 120); } // tiny debounce
+);
+
+
 const normEvents = computed(() => rawEvents.value.map(normalizeEvent));
 
-//Filters
-const searchText = ref('');
 
 const dateFrom = computed(() => {
   if (!dateRange.value) return '';
@@ -137,9 +231,24 @@ function titleMatches(ev) {
   return !q || String(ev.title || '').toLowerCase().includes(q);
 }
 
+const selectedSportsNums = computed(() =>
+    (selectedSports.value || []).map(v => Number(v)).filter(v => !Number.isNaN(v))
+);
+const selectedSportsStrs = computed(() =>
+    (selectedSports.value || []).map(v => String(v).trim()).filter(Boolean)
+);
+
 function sportMatches(ev) {
-  if (!selectedSports.value?.length) return true;
-  return selectedSports.value.includes((ev.category || '').trim());
+  const sel = selectedSports.value;
+  if (!sel?.length) return true;
+
+  const evId   = ev.sport_id ?? ev.sportId ?? ev.sport?.id ?? null;
+  const evName = (ev.category || ev.sport?.name || '').trim();
+
+  if (selectedSportsNums.value.length) {
+    return evId != null && selectedSportsNums.value.includes(Number(evId));
+  }
+  return !!evName && selectedSportsStrs.value.includes(evName);
 }
 
 function inDateRange(ev) {
@@ -236,6 +345,8 @@ function statusToneClass(status) {
       return "bg-success/70 hover:bg-success/70 border border-success text-success-content";
     case "tentative":
       return "bg-warning/70 hover:bg-warning/70 border border-warning text-warning-content";
+    case "scheduled":
+      return "bg-info/70 hover:bg-info/70 border border-info text-info-content";
     case "cancelled":
     case "canceled":
       return "bg-error/70 hover:bg-error/70 border border-error text-error-content";
@@ -419,7 +530,18 @@ function setMode(mode) {
   viewMode.value = mode;
 }
 
-const options = ["Run", "Football", "Basketball", "Tennis"];
+const sports = ref([]);
+
+async function fetchSports() {
+  try {
+    const res = await listSports({ all: 1, team_only: 1 });
+    const payload = res?.data ?? res;
+    sports.value = payload?.data?.sports || payload?.sports || [];
+  } catch (e) {
+    console.error('Failed to load sports', e);
+  }
+}
+
 const label = computed(() =>
     selectedSports.value.length ? selectedSports.value.join(", ") : "Select sports"
 );
@@ -475,46 +597,57 @@ const label = computed(() =>
 
     <!-- Filters -->
     <div class="flex flex-col space-y-4 p-4 card bg-base-100 card-border border-base-300">
-      <div class="flex flex-row gap-2.5">
+      <div class="flex justify-between items-center">
         <div>
-          <label class="input">
-            <svg class="h-[1em] opacity-50" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-              <g stroke-linejoin="round" stroke-linecap="round" stroke-width="2.5" fill="none" stroke="currentColor">
-                <circle cx="11" cy="11" r="8"></circle>
-                <path d="m21 21-4.3-4.3"></path>
-              </g>
-            </svg>
-            <input v-model="searchText" type="search" placeholder="Search"/>
-          </label>
-        </div>
-
-        <!-- sports multi-select -->
-        <div>
-          <div class="dropdown min-w-70">
-            <label tabindex="0" class="input input-bordered w-full justify-between items-center gap-2 cursor-pointer">
-              <span :class="selectedSports?.length ? 'text-base-content' : 'text-base-content/60'">
-                {{ label }}
-              </span>
-              <svg xmlns="http://www.w3.org/2000/svg" class="size-4 opacity-60" viewBox="0 0 24 24" fill="none"
-                   stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 9l6 6 6-6"/>
-              </svg>
-            </label>
-            <ul tabindex="0"
-                class="dropdown-content menu bg-base-100 rounded-box w-64 p-2 shadow max-h-60 overflow-auto">
-              <li v-for="o in options" :key="o">
-                <label class="label cursor-pointer justify-between px-2">
-                  <span class="label-text">{{ o }}</span>
-                  <input type="checkbox" class="checkbox checkbox-sm" :value="o" v-model="selectedSports"/>
-                </label>
-              </li>
-            </ul>
+          <!-- date range picker -->
+          <div>
+            <InputCalendar v-model="dateRange"/>
           </div>
         </div>
+        <div class="flex flex-col">
+        <div class="flex flex-row gap-2.5 items-center">
+          <div>
+            <label class="input">
+              <svg class="h-[1em] opacity-50" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                <g stroke-linejoin="round" stroke-linecap="round" stroke-width="2.5" fill="none" stroke="currentColor">
+                  <circle cx="11" cy="11" r="8"></circle>
+                  <path d="m21 21-4.3-4.3"></path>
+                </g>
+              </svg>
+              <input v-model="searchText" type="search" placeholder="Search"/>
+            </label>
+          </div>
 
-        <!-- date range picker -->
-        <div>
-          <InputCalendar v-model="dateRange"/>
+          <!-- sports multi-select -->
+          <div>
+            <div class="dropdown min-w-70">
+              <label tabindex="0" class="input input-bordered w-full justify-between items-center gap-2 cursor-pointer">
+      <span :class="selectedSports?.length ? 'text-base-content' : 'text-base-content/60'">
+        {{ selectedSports.length ? sports.filter(s => selectedSports.includes(s.id)).map(s => s.name).join(', ') : 'Select sports' }}
+      </span>
+                <svg xmlns="http://www.w3.org/2000/svg" class="size-4 opacity-60" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 9l6 6 6-6"/>
+                </svg>
+              </label>
+              <ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box w-64 p-2 shadow max-h-60 overflow-auto">
+                <li v-for="s in sports" :key="s.id">
+                  <label class="label cursor-pointer justify-between px-2">
+                    <span class="label-text">{{ s.name }}</span>
+                    <input type="checkbox" class="checkbox checkbox-sm" :value="s.id" v-model="selectedSports"/>
+                  </label>
+                </li>
+              </ul>
+            </div>
+
+          </div>
+
+          <div class="w-50">
+            <label class="label">
+              <input type="checkbox" v-model="globalEvents" class="toggle toggle-primary" />
+              {{ globalLabel }}
+            </label>
+          </div>
+        </div>
         </div>
 
       </div>
