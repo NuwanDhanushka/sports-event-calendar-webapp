@@ -1,6 +1,12 @@
 <?php
 namespace App\Core;
 
+/**
+ * Request class
+ * Represents a request in the system
+ * Handles parsing of request data from the client
+ */
+
 final class Request
 {
     private array $server  = [];
@@ -30,7 +36,10 @@ final class Request
         if ($files   !== null) $this->files   = $files;
     }
 
-    /** Capture from PHP superglobals */
+    /**
+     * Capture from PHP superglobals and raw body
+     * @return self
+     */
     public static function capture(): self
     {
         $inst = new self($_SERVER, $_GET, $_POST, $_COOKIE, $_FILES);
@@ -38,6 +47,12 @@ final class Request
         return $inst;
     }
 
+    /**
+     * Get the HTTP method of the request (GET, POST, PUT, PATCH, DELETE)
+     * - Header override: X-HTTP-Method-Override: PATCH
+     * - Form override: POST with _method=PUT|PATCH|DELETE
+     * @return string
+     */
     public function method(): string
     {
         $m = strtoupper($this->server['REQUEST_METHOD'] ?? 'GET');
@@ -54,18 +69,28 @@ final class Request
         return $m;
     }
 
+    /** helpers */
+
     public function isGet(): bool    { return $this->method() === 'GET'; }
     public function isPost(): bool   { return $this->method() === 'POST'; }
     public function isPut(): bool    { return $this->method() === 'PUT'; }
     public function isPatch(): bool  { return $this->method() === 'PATCH'; }
     public function isDelete(): bool { return $this->method() === 'DELETE'; }
 
+    /**
+     * URL path (without query string)
+     * @return string
+     */
     public function path(): string
     {
         $p = parse_url($this->server['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?? '/';
         return $p === '' ? '/' : $p;
     }
 
+    /**
+     * Http scheme (http or https)
+     * @return string
+     */
     public function scheme(): string
     {
         if (!empty($this->server['HTTPS']) && $this->server['HTTPS'] !== 'off') return 'https';
@@ -73,11 +98,19 @@ final class Request
         return 'http';
     }
 
+    /**
+     * Host header with server name fallback
+     * @return string
+     */
     public function host(): string
     {
         return $this->server['HTTP_HOST'] ?? ($this->server['SERVER_NAME'] ?? 'localhost');
     }
 
+    /**
+     * URL with scheme, host, path, and query string
+     * @return string
+     */
     public function url(): string
     {
         $q = $this->server['QUERY_STRING'] ?? '';
@@ -85,6 +118,10 @@ final class Request
         return $this->scheme() . '://' . $this->host() . $this->path() . $qs;
     }
 
+    /**
+     * Client IP address
+     * @return string
+     */
     public function ip(): string
     {
         if (!empty($this->server['HTTP_CLIENT_IP'])) return $this->server['HTTP_CLIENT_IP'];
@@ -96,7 +133,10 @@ final class Request
     }
 
 
-    /** Canonicalized header array (e.g., "Content-Type") */
+    /**
+     * Canonicalized header array (e.g., "Content-Type")
+     * @return array
+     */
     public function headers(): array
     {
         if ($this->headers !== null) return $this->headers;
@@ -121,6 +161,12 @@ final class Request
         return $this->headers = $norm;
     }
 
+    /**
+     * Get a header by name or default
+     * @param string $name
+     * @param $default
+     * @return mixed|null
+     */
     public function header(string $name, $default = null)
     {
         $key = $this->normalizeHeaderName($name);
@@ -128,9 +174,24 @@ final class Request
         return $all[$key] ?? $default;
     }
 
+    /**
+     * Get all cookies
+     * @return array
+     */
     public function cookies(): array { return $this->cookies; }
+
+    /**
+     * Get a cookie by name or default
+     * @param string $name
+     * @param $default
+     * @return mixed|null
+     */
     public function cookie(string $name, $default = null) { return $this->cookies[$name] ?? $default; }
 
+    /**
+     * Extract Bearer token from Authorization header
+     * @return string|null
+     */
     public function bearerToken(): ?string
     {
         $auth = $this->header('Authorization');
@@ -138,20 +199,34 @@ final class Request
         return (stripos($auth, 'Bearer ') === 0) ? trim(substr($auth, 7)) : null;
     }
 
+    /**
+     * Query string: $_GET
+     * - GET: query overrides body on key conflicts.
+     * - Others: body (JSON > form) overrides a query.
+     * @param string|null $key
+     * @param $default
+     * @return array|mixed|null
+     */
     public function query(?string $key = null, $default = null)
     {
         if ($key === null) return $this->get;
         return $this->get[$key] ?? $default;
     }
 
-    /** Raw body (never parsed) */
+    /**
+     * Raw body (or empty string if not present)
+     * @return string
+     */
     public function body(): string
     {
         if ($this->rawBody !== null) return $this->rawBody;
         return $this->rawBody = (string)file_get_contents('php://input');
     }
 
-    /** Content-Type without parameters */
+    /**
+     * Content-Type header (without parameters)
+     * @return string
+     */
     public function contentType(): string
     {
         $ct = (string)$this->header('Content-Type', '');
@@ -159,6 +234,10 @@ final class Request
         return $semi === false ? trim($ct) : trim(substr($ct, 0, $semi));
     }
 
+    /**
+     * Check if Content-Type is JSON
+     * @return bool
+     */
     public function isJson(): bool
     {
         $ct = strtolower((string)$this->header('Content-Type', ''));
@@ -168,6 +247,10 @@ final class Request
             || $ct === 'text/json';
     }
 
+    /**
+     * Decode JSON body (or empty array if not JSON)
+     * @return array
+     */
     public function json(): array
     {
         if ($this->jsonBody !== null) return $this->jsonBody;
@@ -215,6 +298,15 @@ final class Request
         return $this->formBody = [];
     }
 
+    /**
+     * Input data: form + json
+     * - JSON > form
+     * - GET: query overrides body on key conflicts.
+     * - Others: body (JSON > form) overrides a query.
+     * @param string|null $key
+     * @param $default
+     * @return array|mixed|null
+     */
     public function input(?string $key = null, $default = null)
     {
         $merged = $this->form();
@@ -226,8 +318,11 @@ final class Request
 
     /**
      * Unified request data with method-aware precedence.
-     * - GET: query overrides body on key conflicts.
-     * - Others: body (JSON > form) overrides a query.
+     *  - GET: query overrides body on key conflicts.
+     *  - Others: body (JSON > form) overrides a query.
+     * @param string|null $key
+     * @param $default
+     * @return array|mixed|null
      */
     public function getData(?string $key = null, $default = null)
     {
@@ -251,23 +346,41 @@ final class Request
         return $merged[$key] ?? $default;
     }
 
+    /**
+     * Get all files alias for files()
+     * @return array
+     */
     public function getFiles(): array
     {
         return $this->files();
     }
 
+    /**
+     * First file for a field (or null)
+     * @param string $field
+     * @return array|null
+     */
     public function file(string $field): ?array
     {
         $all = $this->files();
         return $all[$field][0] ?? null;
     }
 
+    /**
+     * All files for a field (possibly empty array)
+     * @param string $field
+     * @return array
+     */
     public function filesOf(string $field): array
     {
         $all = $this->files();
         return $all[$field] ?? [];
     }
 
+    /**
+     * Normalize $_FILES array to match PHP's $_FILES format.'
+     * @return array
+     */
     public function files(): array
     {
         if ($this->filesNormalized !== null) return $this->filesNormalized;
@@ -275,6 +388,11 @@ final class Request
         return $this->filesNormalized = self::normalizeFilesArray($src);
     }
 
+    /**
+     * normalize single/multiple upload shapes into a uniform list
+     * @param array $files
+     * @return array
+     */
     private static function normalizeFilesArray(array $files): array
     {
         $out = [];
@@ -307,7 +425,12 @@ final class Request
         return $out;
     }
 
-
+    /**
+     * Clone-with attribute (immutable style
+     * @param string $key
+     * @param $value
+     * @return $this
+     */
     public function withAttr(string $key, $value): self
     {
         $clone = clone $this;
@@ -315,10 +438,18 @@ final class Request
         return $clone;
     }
 
+    /**
+     * Read an attribute or default
+     * @param string $key
+     * @param $default
+     * @return mixed|null
+     */
     public function attr(string $key, $default = null)
     {
         return $this->attributes[$key] ?? $default;
     }
+
+    /** getters and setters */
 
     public function getServer(): array { return $this->server; }
     public function setServer(array $server): self { $this->server = $server; $this->headers = null; return $this; }
@@ -344,8 +475,18 @@ final class Request
     public function getAttributes(): array { return $this->attributes; }
     public function setAttributes(array $attributes): self { $this->attributes = $attributes; return $this; }
 
+    /**
+     * Set raw body and clear cached parsed data
+     * @param string|null $raw
+     * @return $this
+     */
     public function setRawBody(?string $raw): self { $this->rawBody = $raw; $this->jsonBody = null; $this->formBody = null; return $this; }
 
+    /**
+     * Normalize header name to be used in headers() and header()
+     * @param string $name
+     * @return string
+     */
     private function normalizeHeaderName(string $name): string
     {
         $name = str_replace('_', ' ', $name);

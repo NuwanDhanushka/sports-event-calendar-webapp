@@ -1,6 +1,12 @@
 <?php
 namespace App\Core;
 
+/**
+ * Logger class
+ * Handles logging
+ * Logs are written to a JSON file in the logs directory
+ */
+
 final class Logger
 {
     private static bool $isInitialized = false;
@@ -12,12 +18,16 @@ final class Logger
      */
     public static function init(?string $directory = null): void
     {
+        /** if the directory is not provided, use the default */
         if ($directory === null) {
+            /** get the absolute path to the storage directory which is 3 levels up from the dir */
             $directory = dirname(__DIR__, 3) . '/storage/logs';
         }
 
+        /** remove trailing slash if present */
         self::$logDirectory = rtrim($directory, '/');
 
+        /** create the directory if it doesn't exist */
         if (!is_dir(self::$logDirectory)) {
             if (!mkdir(self::$logDirectory, 0775, true) && !is_dir(self::$logDirectory)) {
                 throw new \RuntimeException('Cannot create log directory: ' . self::$logDirectory);
@@ -27,7 +37,7 @@ final class Logger
         self::$isInitialized = true;
     }
 
-    // Convenience methods (no filtering — everything is logged)
+   /********** LOG LEVELS **********/
     public static function debug(string $message, array $context = []): void
     {
         self::log('debug', $message, $context);
@@ -54,26 +64,32 @@ final class Logger
      */
     public static function log(string $level, string $message, array $context = []): void
     {
+        /** initialize logger if not already initialized */
         if (!self::$isInitialized) {
             self::init();
         }
 
+        /** build log record */
         $logRecord = [
             'timestamp' => gmdate('c'),
             'level' => strtolower($level),
             'message' => $message,
         ];
+
+        /** add context if provided */
         if (!empty($context)) {
-            // Keep context as-is; keep it small and avoid secrets.
+            // Keep context as-is. keep it small and avoid secrets.
             $logRecord['context'] = $context;
         }
 
+        /** encode log record to JSON */
         $jsonLine = json_encode($logRecord, JSON_UNESCAPED_SLASHES);
         if ($jsonLine === false) {
-            // Skip if encoding fails (keep implementation minimal)
+            // Skip if encoding fails
             return;
         }
 
+        /** append to log record to the log file in logs directory with timestamp in filename*/
         $logFilePath = self::$logDirectory . '/app-' . gmdate('Y-m-d') . '.log';
         file_put_contents($logFilePath, $jsonLine . PHP_EOL, FILE_APPEND | LOCK_EX);
     }
