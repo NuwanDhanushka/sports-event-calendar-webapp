@@ -1,0 +1,57 @@
+services:
+  db:
+    image: mariadb:11
+    container_name: sports_events_db
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: sports_events
+      MYSQL_USER: admin
+      MYSQL_PASSWORD: admin123
+      MYSQL_ROOT_PASSWORD: rootpass
+    ports:
+      - "3306:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./sql:/docker-entrypoint-initdb.d:ro
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: sports_events_api
+    restart: unless-stopped
+    environment:
+      APP_ENV: local
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_NAME: sports_events
+      DB_USER: admin
+      DB_PASS: admin123
+      DB_CHARSET: utf8mb4
+      REQUIRE_API_KEY: "true"
+      STORAGE_PUBLIC_BASE: /storage/
+
+    volumes:
+      - ./api:/app/api:delegated
+      - ./storage:/app/storage
+    depends_on:
+      - db
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    container_name: sports_events_web
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./storage:/app/storage:ro
+      - ./api/public:/app/api/public:ro
+      - ./docker/certs:/etc/nginx/certs:ro
+    depends_on:
+      - api
+
+volumes:
+  db_data:

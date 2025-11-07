@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Core\Database;
+
 /**
  * Venue model
  * Represents a venue in the database
@@ -69,6 +71,76 @@ class Venue {
     {
         if (!$data) return null;
         return new self($data);
+    }
+
+    /**
+     * List venues with paging and filters.
+     * @param int $limit
+     * @param int $offset
+     * @param array $filters
+     * @return array
+     */
+    public static function list(int $limit = 100, int $offset = 0, array $filters = []): array
+    {
+        /** limit and offset */
+        $limit  = max(1, min(500, $limit));
+        $offset = max(0, $offset);
+
+        $db = new Database();
+
+        $where = [];
+        $bind  = [];
+
+
+        /** create the WHERE clause by joining the WHERE clauses with AND */
+        $whereSql = $where ? ' WHERE '.implode(' AND ', $where) : '';
+
+        /** execute and get the total number of venues */
+        $total = (int)$db->query('SELECT COUNT(*) FROM venues'.$whereSql)
+            ->bindAll($bind)
+            ->value();
+
+        /** execute and get the venues */
+        $rows = $db->query('SELECT     id, name, address_line1, address_line2, city, postal_code, country, is_indoor, time_zone
+                            FROM venues' . $whereSql . '
+                            ORDER BY name ASC
+                            LIMIT :limit OFFSET :offset')
+            ->bindAll($bind)
+            ->bind(':limit',  $limit)
+            ->bind(':offset', $offset)
+            ->results();
+
+        /** map the venues to Venue objects */
+        $items = array_map(fn($item) => self::fromRow($item), $rows);
+
+        /** return the venues and total number of venues */
+        return ['data' => $items, 'total' => $total];
+    }
+
+    /**
+     * Fetch all venues, optionally filtered by sport.
+     * @param array $filters
+     * @return array
+     */
+    public static function all(array $filters = []): array
+    {
+        $db = new Database();
+
+        $where = [];
+        $bind  = [];
+
+        /** create the WHERE clause by joining the WHERE clauses with AND */
+        $whereSql = $where ? ' WHERE '.implode(' AND ', $where) : '';
+
+        /** execute and get the venues */
+        $rows = $db->query('SELECT id, name, address_line1, address_line2, city, postal_code, country, is_indoor, time_zone
+                            FROM venues'.$whereSql.'
+                            ORDER BY name ASC')
+            ->bindAll($bind)
+            ->results();
+
+        /** map the venues to Venue objects */
+        return array_map(fn($item) => self::fromRow($item), $rows);
     }
 
     /**

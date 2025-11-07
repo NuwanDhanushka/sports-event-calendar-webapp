@@ -5,15 +5,15 @@ namespace App\Http\Controllers\V1;
 use App\Core\Env;
 use App\Core\Request;
 use App\Core\Response;
-use App\Models\Sport;
+use App\Models\team;
 
 /**
- * Sport controller
+ * Team controller
  */
-class SportController
+class TeamController
 {
     /**
-     * List sports
+     * List teams
      * @param Request $req
      * @param array $params
      * @return Response
@@ -21,20 +21,19 @@ class SportController
     public function index(Request $req, array $params): Response
     {
 
-        /** check if all sports are requested */
+        /** check if all teams are requested */
         $all = (int)$req->query('all', 0) === 1;
 
-        /** get query params and team only data from the request */
+        /** get query params from the request */
         $filters = [
-            'q'         => (string)$req->query('q', ''),
-            'team_only' => $req->query('team_only', null),
+            'sport_id' => $req->query('sport_id', null),
         ];
 
-        /** if all sports are requested, return all sports */
+        /** if all teams are requested, return all teams */
         if ($all) {
-            $items = Sport::all($filters);
-            return new Response(200, 'Sports list', true, [
-                'sports' => array_map(fn(Sport $sport) => $sport->toArray(), $items),
+            $items = Team::all($filters);
+            return new Response(200, 'teams list', true, [
+                'teams' => array_map(fn(Team $team) => $team->toArray(), $items),
                 'meta'   => ['mode' => 'all', 'count' => count($items)],
             ]);
         }
@@ -44,13 +43,13 @@ class SportController
         $page   = max(1, (int)$req->query('page', 1));
         $offset = ($page - 1) * $limit;
 
-        /** get the list of sports */
-        $res = Sport::list($limit, $offset, $filters);
+        /** get the list of teams */
+        $res = Team::list($limit, $offset, $filters);
         [$items, $total] = [ $res['data'], $res['total'] ];
 
-        /** return the response with the filtered sports and pagination info */
-        return new Response(200, 'Sports list', true, [
-            'sports' => array_map(fn(Sport $sport) => $sport->toArray(), $items),
+        /** return the response with the filtered teams and pagination info */
+        return new Response(200, 'teams list', true, [
+            'teams' => array_map(fn(Team $team) => $team->toArray(), $items),
             'meta'   => [
                 'mode'  => 'paged',
                 'page'  => $page,

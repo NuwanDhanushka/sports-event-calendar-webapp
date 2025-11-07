@@ -12,7 +12,7 @@ class EventTeam
     private int $teamId  = 0;
 
     private ?string $side = null;    // e.g. 'home' | 'away' | null
-    private ?string $score = null;   // varchar(100) in schema (keep as string)
+    private ?string $score = null;   // Store score as string
     private ?string $result = null;  // e.g. 'win' | 'loss' | 'draw' | null
 
     private ?Team $team = null;      // optional joined team

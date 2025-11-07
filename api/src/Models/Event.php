@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Core\Database;
+use App\Core\Logger;
 
 /**
  * Event model
@@ -86,11 +87,13 @@ class Event
     public static function fromRow(array $data): self
     {
 
+        /** Hydrate nested objects if present in the array payload */
         $venue       = isset($data['venue'])       ? Venue::fromArray($data['venue'])             : null;
         $sport       = isset($data['sport'])       ? Sport::fromArray($data['sport'])             : null;
         $competition = isset($data['competition']) ? Competition::fromArray($data['competition']) : null;
         $createdBy   = isset($data['created_by'])  ? User::fromArray($data['created_by'])     : null;
 
+        /** Build EventTeam[] from the 'teams' list (ignore non-array / empty) */
         $eventTeams = [];
         if (!empty($data['teams']) && is_array($data['teams'])) {
             foreach ($data['teams'] as $eventTeam) {
@@ -99,6 +102,7 @@ class Event
             }
         }
 
+        /** return fully constructed event object */
         return new self([
             'id'            => (int)$data['id'],
             'title'         => (string)$data['title'],
@@ -146,43 +150,271 @@ class Event
         ];
     }
 
+    /**
+     * Validate the data before creating a new event.
+     * Throws an exception if validation fails.
+     * @param array $data
+     * @return void
+     */
     private static function validate(array $data): void
     {
+
+        $errors = [];
+
+        /** title is required */
         $title = trim((string)($data['title'] ?? ''));
-        if ($title === '') throw new \InvalidArgumentException('title is required');
+        if ($title === '') {
+            $errors['title'] = 'Title is required.';
+        }
+
+        /** status is required and must be one of the allowed values*/
+        $statusInput = $data['status'] ?? '';
+        $status = strtolower(trim((string)$statusInput));
+        $allowedStatuses = ['confirmed', 'tentative', 'scheduled', 'cancelled'];
+
+        if ($status === '') {
+            $errors['status'] = 'Status is required.';
+        } elseif (!in_array($status, $allowedStatuses, true)) {
+            $errors['status'] = 'Invalid status value.';
+        }
+
+        /** start and end date are required (support snake_case & camelCase) */
+        $startAtInput = trim((string)($data['start_at'] ?? $data['startAt'] ?? ''));
+        $endAtInput   = trim((string)($data['end_at']   ?? $data['endAt']   ?? ''));
+
+        if ($startAtInput === '') {
+            $errors['start_at'] = 'Start time is required.';
+        }
+        if ($endAtInput === '') {
+            $errors['end_at'] = 'End time is required.';
+        }
+
+        $normalizedStartAt = null;
+        $normalizedEndAt   = null;
+
+        // validate and normalize start_at if present
+        if (!isset($errors['start_at']) && $startAtInput !== '') {
+            $normalizedStartAt = self::normalizeDateTimeForValidation(
+                $startAtInput,
+                'start_at',
+                false,
+                $errors
+            );
+        }
+
+        // validate and normalize end_at if present
+        if (!isset($errors['end_at']) && $endAtInput !== '') {
+            $normalizedEndAt = self::normalizeDateTimeForValidation(
+                $endAtInput,
+                'end_at',
+                true,
+                $errors
+            );
+        }
+
+        /** check end_at is after or equal to start_at when both are valid */
+        if ($normalizedStartAt !== null
+            && $normalizedEndAt !== null
+            && !isset($errors['start_at'], $errors['end_at'])
+            && $normalizedEndAt < $normalizedStartAt
+        ) {
+            $errors['end_at'] = 'End time must be after start time.';
+        }
+
+        /** check if foreign keys are valid integers */
+        $foreignKeyFields = ['competition_id', 'venue_id', 'sport_id', 'created_by'];
+
+        foreach ($foreignKeyFields as $fieldName) {
+            if (array_key_exists($fieldName, $data) && $data[$fieldName] !== null && $data[$fieldName] !== '') {
+                $valueAsString = (string)$data[$fieldName];
+
+                if (!ctype_digit($valueAsString) || (int)$valueAsString <= 0) {
+                    $errors[$fieldName] = 'Must be a positive integer.';
+                }
+            }
+        }
+
+        /** if any errors were found, throw an exception with the errors */
+        if (!empty($errors)) {
+            throw new \InvalidArgumentException(json_encode($errors));
+        }
+
     }
 
     /**
-     * Create a new event
+     * Validate and normalize a datetime string.
+     *
+     * Accepts:
+     *  - "Y-m-d H:i:s"
+     *  - "Y-m-d"
+     *
+     * If only a date is given:
+     *  - for start_at -> 00:00:00
+     *  - for end_at   -> 23:59:59
+     *
+     * On invalid format: adds an error entry and returns null.
+     *
+     * @param string $value
+     * @param string $fieldName
+     * @param bool   $isEnd    True if this is end_at, false if start_at.
+     * @param array  $errors   Passed by reference.
+     * @return string|null     Normalized "Y-m-d H:i:s" or null on failure.
+     */
+    private static function normalizeDateTimeForValidation(string $value, string $fieldName, bool $isEnd, array &$errors): ?string
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return null;
+        }
+
+        /** try full datetime first */
+        $dateTime = \DateTime::createFromFormat('Y-m-d H:i:s', $value);
+        if ($dateTime && $dateTime->format('Y-m-d H:i:s') === $value) {
+            return $dateTime->format('Y-m-d H:i:s');
+        }
+
+        /** try only date */
+        $date = \DateTime::createFromFormat('Y-m-d', $value);
+        if ($date && $date->format('Y-m-d') === $value) {
+            // Start gets 00:00:00, End gets 23:59:59
+            return $isEnd
+                ? $date->format('Y-m-d 23:59:59')
+                : $date->format('Y-m-d 00:00:00');
+        }
+
+        /** if the value is not in the correct format, add an error entry and return null */
+        $errors[$fieldName] = 'Invalid ' . $fieldName . ' format. Use "Y-m-d" or "Y-m-d H:i:s".';
+        return null;
+    }
+
+
+    /**
+     * Create a new event and related teams
+     * return the eventId on success, 0 on failure.
      * @param array $data
+     * @param string|null $bannerPath
      * @return int
      */
     public static function create(array $data, ?string $bannerPath = null): int
     {
-
+        /** Validate the data */
         self::validate($data);
+
+        /** normalize startAt and endAt */
+        $startAt = $data['start_at'] ?? $data['startAt'] ?? null;
+        $endAt   = $data['end_at']   ?? $data['endAt']   ?? null;
+
+
+        /** if no start date is given, default to "now" */
+        if (!$startAt) {
+            $startAt = date('Y-m-d H:i:s');
+        } elseif (strlen($startAt) === 10) {
+            /** if the start date is only a date, set it to the start of the day */
+            $startAt .= ' 00:00:00';
+        }
+
+        /** if the end date is only a date, set it to the end of the day  */
+        if ($endAt && strlen($endAt) === 10) {
+            $endAt .= ' 23:59:59';
+        }
+
+        /** Normalize foreign keys (they've been validated already if present) */
+        $competitionId = isset($data['competition_id']) ? (int)$data['competition_id'] : null;
+        $venueId       = isset($data['venue_id'])       ? (int)$data['venue_id']       : null;
+        $sportId       = isset($data['sport_id'])       ? (int)$data['sport_id']       : null;
+
+        /** cus login hasn't implemented yet on frontend */
+        $createdBy     = 1;
+
+        /**
+         * Normalize the data
+         */
+        $teams = [];
+        if (!empty($data['teams']) && is_array($data['teams'])) {
+            foreach ($data['teams'] as $item) {
+
+                /** if the item is a string, try to decode it as JSON */
+                if (is_string($item)) {
+                    $decoded = json_decode($item, true);
+                    if (json_last_error() === JSON_ERROR_NONE) {
+                        $item = $decoded;
+                    } else {
+                        continue;
+                    }
+                }
+
+                if (!is_array($item)) continue;
+
+                $teamId = (int)($item['team_id'] ?? $item['teamId'] ?? 0);
+                $side   = $item['side'] ?? null;
+
+                if ($teamId > 0 && in_array($side, ['home', 'away'], true)) {
+                    $teams[] = [
+                        'team_id' => $teamId,
+                        'side'    => $side,
+                    ];
+                }
+            }
+        }
+
 
         $database = new Database();
 
-        $sql = 'INSERT INTO events (title, banner_path, description, start_at, end_at, status, competition_id, venue_id, sport_id, created_by)
+        try{
+
+            /** start a transaction */
+            $database->begin();
+
+            $sql = 'INSERT INTO events (title, banner_path, description, start_at, end_at, status, competition_id, venue_id, sport_id, created_by)
                 VALUES (:title, :banner_path, :description, :start_at, :end_at, :status, :competition_id, :venue_id, :sport_id, :created_by)';
 
-        $database->query($sql);
-        $database->bind(':title',         (string)$data['title']);
-        $database->bind(':banner_path',   $bannerPath);
-        $database->bind(':description',   $data['description'] ?? null);
-        $database->bind(':start_at',      $data['start_at'] ?? date('Y-m-d H:i:s'));
-        $database->bind(':end_at',        $data['end_at'] ?? null);
-        $database->bind(':status',        $data['status'] ?? null);
-        $database->bind(':competition_id',$data['competition_id'] ?? null);
-        $database->bind(':venue_id',      $data['venue_id'] ?? null);
-        $database->bind(':sport_id',      $data['sport_id'] ?? null);
-        $database->bind(':created_by',    $data['created_by'] ?? null);
-        $database->execute();
+            $database->query($sql);
+            $database->bind(':title',          (string)$data['title']);
+            $database->bind(':banner_path',    $bannerPath);
+            $database->bind(':description',    $data['description'] ?? null);
+            $database->bind(':start_at',       $startAt);
+            $database->bind(':end_at',         $endAt);
+            $database->bind(':status',         $data['status'] ?? null);
+            $database->bind(':competition_id', $competitionId);
+            $database->bind(':venue_id',       $venueId);
+            $database->bind(':sport_id',       $sportId);
+            $database->bind(':created_by',     $createdBy);
+            $database->execute();
+            $eventId  = $database->lastId();
 
-        return $database->lastId();
+            /** insert teams into event_teams table */
+            if ($eventId > 0 && !empty($teams)) {
+                $sqlTeam = 'INSERT INTO event_teams (event_id, team_id, side)
+                        VALUES (:event_id, :team_id, :side)';
+
+                foreach ($teams as $team) {
+                    $database->query($sqlTeam)
+                        ->bind(':event_id', $eventId)
+                        ->bind(':team_id',  $team['team_id'])
+                        ->bind(':side',     $team['side'])
+                        ->execute();
+                }
+            }
+
+            /** commit the transaction and return the eventId */
+            $database->commit();
+
+            return $eventId;
+
+        }catch (\Exception $e){
+            $database->rollback();
+            Logger::error($e->getMessage());
+            return 0;
+
+        }
+
     }
 
+    /**
+     * Base SELECT query for to get event data with nested JSON relations:
+     *   venue, sport, competition and teams[] (each with team & sport).
+     *   Uses LEFT JOINs + COALESCE to return {} / [] when relations are missing.
+     */
     private static function baseSelect(): string
     {
         return "
@@ -264,32 +496,51 @@ LEFT JOIN users        cu ON cu.id = c.created_by
 ";
     }
 
-    /** Find by ID */
+    /**
+     * Find event by id.
+     * Returns null if not found. Returns fully constructed event object if found.
+     * @param int $id
+     * @return self|null
+     */
     public static function find(int $id): ?self
     {
         $db = new Database();
+
+        /** get the base query and append WHERE id = :id to get the record by id */
         $sql = self::baseSelect() . ' WHERE e.id = :id LIMIT 1';
         $row = $db->query($sql)->bind(':id', $id)->single();
         if (!$row) return null;
 
+        /** decode json fields */
         $row['venue']       = $row['venue']       ? json_decode($row['venue'], true)       : [];
         $row['sport']       = $row['sport']       ? json_decode($row['sport'], true)       : [];
         $row['competition'] = $row['competition'] ? json_decode($row['competition'], true) : [];
         $row['created_by']  = $row['created_by']  ? json_decode($row['created_by'], true)  : [];
         $row['teams']       = $row['teams']       ? json_decode($row['teams'], true)       : [];
 
+        /** return fully constructed event object */
         return self::fromRow($row);
     }
 
-    /** List with pagination */
+    /**
+     * List all events.
+     * Returns an array of fully constructed event objects.
+     * @param int $limit
+     * @param int $offset
+     * @return array
+     */
     public static function list(int $limit = 20, int $offset = 0): array
     {
+        /** validate limit and offset */
         $limit = max(1, min(100, $limit));
         $offset = max(0, $offset);
 
         $db = new Database();
+
+        /** get the total number of events */
         $total = (int)$db->query('SELECT COUNT(*) FROM events')->value();
 
+        /** get the base query and append LIMIT and OFFSET to get the records */
         $sql = self::baseSelect() . ' ORDER BY e.id DESC LIMIT :limit OFFSET :offset';
         $q = $db->query($sql)
             ->bind(':limit',  $limit)
@@ -297,6 +548,7 @@ LEFT JOIN users        cu ON cu.id = c.created_by
 
         $rows = $q->results();
 
+        /** decode json fields */
         foreach ($rows as &$row) {
             $row['venue']       = $row['venue']       ? json_decode($row['venue'], true)       : [];
             $row['sport']       = $row['sport']       ? json_decode($row['sport'], true)       : [];
@@ -305,8 +557,10 @@ LEFT JOIN users        cu ON cu.id = c.created_by
             $row['teams']       = $row['teams']       ? json_decode($row['teams'], true)       : [];
         }
 
+       /** unset the row to free up memory */
         unset($row);
 
+        /** return an array of fully constructed event objects */
         $items = array_map(fn($row) => self::fromRow($row), $rows);
         return ['data' => $items, 'total' => $total];
     }
@@ -321,28 +575,36 @@ LEFT JOIN users        cu ON cu.id = c.created_by
      */
     public static function filterEvents(?string $from, ?string $to, array $filters = []): array
     {
-        // Open-ended defaults if one/both missing
+        /** if from or to is null, set it to open-ended */
         if ($from === null || $from === '') $from = '0000-01-01 00:00:00';
         if ($to   === null || $to   === '') $to   = '9999-12-31 23:59:59';
 
+        /** if the range doesn't have a time component, add it */
         if (strlen($from) === 10) $from .= ' 00:00:00';
         if (strlen($to)   === 10) $to   .= ' 23:59:59';
         if ($from > $to) [ $from, $to ] = [ $to, $from ];
 
         $db = new Database();
 
+        /** build the WHERE clause with start and end date range */
         $where = [
             '(e.start_at <= :to AND (e.end_at IS NULL OR e.end_at >= :from))'
         ];
+
+        /** the bind to from and to */
         $bind  = [ ':from' => $from, ':to' => $to ];
 
-        // Text search
+        /** if there is a search query, add it to the WHERE clause */
         if (!empty($filters['q'])) {
             $where[] = '(e.title LIKE :q)';
             $bind[':q'] = '%'.trim((string)$filters['q']).'%';
         }
 
-        // Normalize sports to array
+        /** Sports filter
+         * If string: split CSV by ',', trim items, drop empties → array
+         * If array: use as-is
+         * Otherwise: wrap non-empty scalar in an array; else []
+         */
         $sports = $filters['sports'] ?? [];
         if (is_string($sports)) {
             $sports = array_filter(array_map('trim', explode(',', $sports)), 'strlen');
@@ -351,41 +613,50 @@ LEFT JOIN users        cu ON cu.id = c.created_by
         }
 
         if ($sports) {
+            /** Splits value into numeric id and string names */
             $ids = []; $names = [];
             foreach ($sports as $value) {
                 if (is_numeric($value)) $ids[] = (int)$value;
                 else $names[] = (string)$value;
             }
+
+            /** Build parameterized IN() for sport IDs: e.sport_id IN (:sid0, :sid1, ...) */
             if ($ids) {
                 $in = [];
                 foreach ($ids as $i => $id) {
                     $key = ":sid{$i}";
-                    $in[] = $key;
-                    $bind[$key] = $id;
+                    $in[] = $key; // collect placeholder
+                    $bind[$key] = $id;  // bind actual value
                 }
                 $where[] = 'e.sport_id IN ('.implode(',', $in).')';
             }
+
+            /** Build parameterized IN() for sport names: s.name IN (:sname0, :sname1, ...) */
             if ($names) {
-                // requires JOIN sports AS s in baseSelect()
                 $in = [];
                 foreach ($names as $i => $name) {
                     $key = ":sname{$i}";
-                    $in[] = $key;
-                    $bind[$key] = $name;
+                    $in[] = $key;   // collect placeholder
+                    $bind[$key] = $name;  // bind actual value
                 }
                 $where[] = 's.name IN ('.implode(',', $in).')';
             }
         }
 
+        /** append where conditions to the base SELECT query*/
         $sql = self::baseSelect()
             . ' WHERE ' . implode(' AND ', $where)
             . ' ORDER BY (e.start_at IS NULL), e.start_at, e.id';
 
         $db->query($sql);
+
+        /** bind the parameters */
         foreach ($bind as $key => $value) $db->bind($key, $value);
 
+        /** execute the query and get the results */
         $rows = $db->results();
 
+        /** decode json fields */
         foreach ($rows as &$row) {
             $row['venue']       = $row['venue']       ? json_decode($row['venue'], true)       : [];
             $row['sport']       = $row['sport']       ? json_decode($row['sport'], true)       : [];
@@ -393,15 +664,24 @@ LEFT JOIN users        cu ON cu.id = c.created_by
             $row['created_by']  = $row['created_by']  ? json_decode($row['created_by'], true)  : [];
             $row['teams']       = $row['teams']       ? json_decode($row['teams'], true)       : [];
         }
+
+        /** unset the row to free up memory */
         unset($row);
 
+        /** return an array of fully constructed event objects */
         return array_map(fn($row) => self::fromRow($row), $rows);
     }
 
 
-    /** Update title; returns affected rows */
+    /**
+     * Update event data by id.
+     * @param int $id
+     * @param array $payload
+     * @return int
+     */
     public static function update(int $id, array $payload): int
     {
+        /** check if none of the allowed fields are present, do nothing */
         if (!array_key_exists('title', $payload)
             && !array_key_exists('description', $payload)
             && !array_key_exists('status', $payload)
@@ -412,6 +692,7 @@ LEFT JOIN users        cu ON cu.id = c.created_by
             && !array_key_exists('sport_id', $payload)
         ) return 0;
 
+        /** Build dynamic SET clauses and their bound values */
         $sets = [];
         $bind = [];
         foreach ([
@@ -419,13 +700,15 @@ LEFT JOIN users        cu ON cu.id = c.created_by
                      'competition_id','venue_id','sport_id'
                  ] as $column) {
             if (array_key_exists($column, $payload)) {
-                $sets[] = "$column = :$column";
-                $bind[":$column"] = $payload[$column];
+                $sets[] = "$column = :$column"; // e.g. "title = :title"
+                $bind[":$column"] = $payload[$column]; // parameter value
             }
         }
 
+        /** Run model validation for fields that require.*/
         if (isset($bind[':title'])) self::validate(['title' => $bind[':title']]);
 
+        /** implode the data and execute the update query */
         $sql = 'UPDATE events SET '.implode(', ', $sets).' WHERE id = :id';
         $db = new Database();
         $db->query($sql);
@@ -433,10 +716,15 @@ LEFT JOIN users        cu ON cu.id = c.created_by
         $db->bind(':id', $id);
         $db->execute();
 
+        /** return the number of affected rows */
         return $db->rowCount();
     }
 
-    /** Delete; returns affected rows */
+    /**
+     * Delete event by id.
+     * @param int $id
+     * @return int
+     */
     public static function delete(int $id): int
     {
         $db = new Database();
@@ -447,6 +735,12 @@ LEFT JOIN users        cu ON cu.id = c.created_by
         return $db->rowCount();
     }
 
+    /**
+     * Set relative banner image path for event and update the database.
+     * @param int $id
+     * @param string|null $relativePath
+     * @return int
+     */
     public static function setBanner(int $id, ?string $relativePath): int
     {
         $database = new Database();
@@ -457,6 +751,11 @@ LEFT JOIN users        cu ON cu.id = c.created_by
         return $database->rowCount();
     }
 
+    /**
+     * Fetch the banner path for the event by id.
+     * @param int $id
+     * @return string|null
+     */
     public static function getBannerPathById(int $id): ?string
     {
         $database = new Database();

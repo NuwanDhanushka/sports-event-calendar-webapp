@@ -70,6 +70,7 @@ class Sport
      */
     public static function list(int $limit = 100, int $offset = 0, array $filters = []): array
     {
+        /** limit and offset */
         $limit  = max(1, min(500, $limit));
         $offset = max(0, $offset);
 
@@ -78,21 +79,27 @@ class Sport
         $where = [];
         $bind  = [];
 
+        /** if there's a search query, add a WHERE clause by bind the search text and use LIKE' */
         if (!empty($filters['q'])) {
             $where[] = '(name LIKE :q)';
             $bind[':q'] = '%'.trim((string)$filters['q']).'%';
         }
+
+        /** if there's a team_only filter, add a WHERE clause by bind the team_only value' */
         if (isset($filters['team_only'])) {
             $where[] = 'is_team_sport = :team_only';
             $bind[':team_only'] = (int)(bool)$filters['team_only'];
         }
 
+        /** create the WHERE clause by joining the WHERE clauses with AND */
         $whereSql = $where ? ' WHERE '.implode(' AND ', $where) : '';
 
+        /** execute and get the total number of sports */
         $total = (int)$db->query('SELECT COUNT(*) FROM sports'.$whereSql)
             ->bindAll($bind)
             ->value();
 
+        /** execute and get the sports */
         $rows = $db->query('SELECT id, name, is_team_sport
                             FROM sports'.$whereSql.'
                             ORDER BY name ASC
@@ -102,12 +109,18 @@ class Sport
             ->bind(':offset', $offset)
             ->results();
 
+        /** map the sports to Sport objects */
         $items = array_map(fn($item) => self::fromRow($item), $rows);
 
+        /** return the sports and total number of sports */
         return ['data' => $items, 'total' => $total];
     }
 
-    /** Fetch all (no paging), with filters. */
+    /**
+     * Fetch all sports, optionally filtered by team sport and search text.
+     * @param array $filters
+     * @return array
+     */
     public static function all(array $filters = []): array
     {
         $db = new Database();
@@ -115,23 +128,29 @@ class Sport
         $where = [];
         $bind  = [];
 
+        /** if there's a search text, add a WHERE clause by bind the search text and use LIKE' */
         if (!empty($filters['q'])) {
             $where[] = '(name LIKE :q)';
             $bind[':q'] = '%'.trim((string)$filters['q']).'%';
         }
+
+        /** if there's a team_only filter, add a WHERE clause by bind the team_only value */
         if (isset($filters['team_only'])) {
             $where[] = 'is_team_sport = :team_only';
             $bind[':team_only'] = (int)(bool)$filters['team_only'];
         }
 
+        /** create the WHERE clause by joining the WHERE clauses with AND */
         $whereSql = $where ? ' WHERE '.implode(' AND ', $where) : '';
 
+        /** execute and get the sports */
         $rows = $db->query('SELECT id, name, is_team_sport
                             FROM sports'.$whereSql.'
                             ORDER BY name ASC')
             ->bindAll($bind)
             ->results();
 
+        /** map the sports to Sport objects */
         return array_map(fn($item) => self::fromRow($item), $rows);
     }
 

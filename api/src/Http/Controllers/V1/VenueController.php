@@ -5,15 +5,15 @@ namespace App\Http\Controllers\V1;
 use App\Core\Env;
 use App\Core\Request;
 use App\Core\Response;
-use App\Models\Sport;
+use App\Models\venue;
 
 /**
- * Sport controller
+ * Venue controller
  */
-class SportController
+class VenueController
 {
     /**
-     * List sports
+     * List venues
      * @param Request $req
      * @param array $params
      * @return Response
@@ -21,20 +21,15 @@ class SportController
     public function index(Request $req, array $params): Response
     {
 
-        /** check if all sports are requested */
+        /** check if all venues are requested */
         $all = (int)$req->query('all', 0) === 1;
 
-        /** get query params and team only data from the request */
-        $filters = [
-            'q'         => (string)$req->query('q', ''),
-            'team_only' => $req->query('team_only', null),
-        ];
 
-        /** if all sports are requested, return all sports */
+        /** if all venues are requested, return all venues */
         if ($all) {
-            $items = Sport::all($filters);
-            return new Response(200, 'Sports list', true, [
-                'sports' => array_map(fn(Sport $sport) => $sport->toArray(), $items),
+            $items = Venue::all();
+            return new Response(200, 'venues list', true, [
+                'venues' => array_map(fn(Venue $venue) => $venue->toArray(), $items),
                 'meta'   => ['mode' => 'all', 'count' => count($items)],
             ]);
         }
@@ -44,13 +39,13 @@ class SportController
         $page   = max(1, (int)$req->query('page', 1));
         $offset = ($page - 1) * $limit;
 
-        /** get the list of sports */
-        $res = Sport::list($limit, $offset, $filters);
+        /** get the list of venues */
+        $res = Venue::list($limit, $offset);
         [$items, $total] = [ $res['data'], $res['total'] ];
 
-        /** return the response with the filtered sports and pagination info */
-        return new Response(200, 'Sports list', true, [
-            'sports' => array_map(fn(Sport $sport) => $sport->toArray(), $items),
+        /** return the response with the filtered venues and pagination info */
+        return new Response(200, 'venues list', true, [
+            'venues' => array_map(fn(Venue $venue) => $venue->toArray(), $items),
             'meta'   => [
                 'mode'  => 'paged',
                 'page'  => $page,

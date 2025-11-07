@@ -1,0 +1,22 @@
+FROM php:8.3-fpm-alpine
+
+RUN apk add --no-cache bash git unzip icu-dev libpng-dev libjpeg-turbo-dev libwebp-dev oniguruma-dev \
+  && docker-php-ext-configure gd --with-jpeg --with-webp \
+  && docker-php-ext-install -j$(nproc) pdo pdo_mysql intl gd
+
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+
+WORKDIR /app
+
+# install composer deps
+COPY ./api/composer.json ./api/composer.lock* /app/api/
+RUN cd /app/api && composer install --no-dev --prefer-dist --no-interaction
+
+# copy rest of the API
+COPY ./api /app/api
+
+# php.ini (optional)
+COPY docker/php.ini /usr/local/etc/php/conf.d/zz-custom.ini
+
+EXPOSE 9000
+CMD ["php-fpm"]

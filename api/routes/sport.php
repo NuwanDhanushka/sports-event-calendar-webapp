@@ -4,5 +4,9 @@
 
 use App\Http\Controllers\V1\SportController;
 
-$router->get('/sport',        [SportController::class, 'index']);
-$router->get('/sport/{id}',   [SportController::class, 'show']);
+/** Routes for managing sports */
+
+/** Get sports */
+$router->get('/sport', [SportController::class, 'index']);
+/** Get sport by id */
+$router->get('/sport/{id}', [SportController::class, 'show']);
