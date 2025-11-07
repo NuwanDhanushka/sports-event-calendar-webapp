@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Core\Database;
+
 /**
  * Team model
  * Represents a team in the database
@@ -67,6 +69,89 @@ class Team
         if (!$data) return null;
         return new self($data);
     }
+
+
+    /**
+     * List sports, with paging and filters.
+     * @param int $limit
+     * @param int $offset
+     * @param array $filters
+     * @return array
+     */
+    public static function list(int $limit = 100, int $offset = 0, array $filters = []): array
+    {
+        /** limit and offset */
+        $limit  = max(1, min(500, $limit));
+        $offset = max(0, $offset);
+
+        $db = new Database();
+
+        $where = [];
+        $bind  = [];
+
+        /** if there's a sport_id filter, add a WHERE clause by bind the sport_id value' */
+        if (isset($filters['sport_id'])) {
+            $where[] = 'sport_id = :sport_id';
+            $bind[':sport_id'] = (int)$filters['sport_id'];
+        }
+
+        /** create the WHERE clause by joining the WHERE clauses with AND */
+        $whereSql = $where ? ' WHERE '.implode(' AND ', $where) : '';
+
+        /** execute and get the total number of teams */
+        $total = (int)$db->query('SELECT COUNT(*) FROM teams'.$whereSql)
+            ->bindAll($bind)
+            ->value();
+
+        /** execute and get the teams */
+        $rows = $db->query('SELECT id, name, short_name, city, country, logo_url,sport_id
+                            FROM teams'.$whereSql.'
+                            ORDER BY name ASC
+                            LIMIT :limit OFFSET :offset')
+            ->bindAll($bind)
+            ->bind(':limit',  $limit)
+            ->bind(':offset', $offset)
+            ->results();
+
+        /** map the teams to team objects */
+        $items = array_map(fn($item) => self::fromRow($item), $rows);
+
+        /** return the teams and total number of teams */
+        return ['data' => $items, 'total' => $total];
+    }
+
+    /**
+     * Fetch all teams, optionally filtered by sport.
+     * @param array $filters
+     * @return array
+     */
+    public static function all(array $filters = []): array
+    {
+        $db = new Database();
+
+        $where = [];
+        $bind  = [];
+
+        /** if there's a sport_id filter, add a WHERE clause by bind the sport_id value */
+        if (isset($filters['sport_id'])) {
+            $where[] = 'sport_id = :sport_id';
+            $bind[':sport_id'] = (int)(bool)$filters['sport_id'];
+        }
+
+        /** create the WHERE clause by joining the WHERE clauses with AND */
+        $whereSql = $where ? ' WHERE '.implode(' AND ', $where) : '';
+
+        /** execute and get the teams */
+        $rows = $db->query('SELECT id, name, short_name, city, country, logo_url,sport_id
+                            FROM teams'.$whereSql.'
+                            ORDER BY name ASC')
+            ->bindAll($bind)
+            ->results();
+
+        /** map the teams to team objects */
+        return array_map(fn($item) => self::fromRow($item), $rows);
+    }
+
 
     /**
      * Converts the Team object to an array

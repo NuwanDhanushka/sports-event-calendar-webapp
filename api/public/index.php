@@ -35,7 +35,7 @@ ApiAuth::requireApiKey($request);
 $router = new Router();
 
 /** Load the routes */
-require __DIR__ . '/../routes/api.php';
+require __DIR__ . '/../routes/routes.php';
 
 /** match the request with the routes with request method and path */
 $match = $router->match($request->method(), $request->path());

@@ -152,10 +152,10 @@ class EventController
         $requestData = $req->getData();
         $bannerRelative = null;
 
-        /** check if user has permission to create */
-        if (!Permission::has('event_create')) {
-            return new Response(403, 'Permission denied', false);
-        }
+        /** check if user has permission to create disable for now*/
+//        if (!Permission::has('event_create')) {
+//            return new Response(403, 'Permission denied', false);
+//        }
 
         if (empty($requestData['title'])) {
             return new Response(422, 'Validation failed', false, ['missing'=>['title']]);
