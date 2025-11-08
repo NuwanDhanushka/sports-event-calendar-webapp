@@ -1,6 +1,6 @@
 <script setup>
 import "cally";
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch } from 'vue';
 
 const props = defineProps({
   modelValue: {
@@ -8,8 +8,8 @@ const props = defineProps({
     default: ''
   },
   idSuffix: { type: String, default: '' }
-})
-const emit = defineEmits(['update:modelValue', 'apply', 'clear'])
+});
+const emit = defineEmits(['update:modelValue', 'apply', 'clear']);
 
 const POPOVER_ID = `input-calendar-popover${props.idSuffix ? '-' + props.idSuffix : ''}`;
 const TRIGGER_ID = `input-calendar-trigger${props.idSuffix ? '-' + props.idSuffix : ''}`;
@@ -32,14 +32,14 @@ function parseModel(value) {
   if (typeof value === 'object') {
     const start = value.start || null;
     const end = value.end || null;
-    return { start: start || null, end: end || null }
+    return { start: start || null, end: end || null };
   }
-  return { start: null, end: null }
+  return { start: null, end: null };
 }
 
 function formatDate(iso) {
   const [year, month, day] = String(iso).split('-').map(n => parseInt(n, 10));
-  if (!year || !month || !day) return ''
+  if (!year || !month || !day) return '';
   return new Date(year, month - 1, day).toLocaleDateString(undefined, {
     day: '2-digit', month: 'short', year: 'numeric'
   });
@@ -73,13 +73,13 @@ const calendarValue = computed({
 });
 
 function handleCalendarChange(ev) {
-  const detail = ev?.detail
+  const detail = ev?.detail;
   const string =
       (typeof detail === 'string' && detail) ||
       (typeof detail?.value === 'string' && detail.value) ||
       ev?.target?.value ||
       ev?.currentTarget?.getAttribute?.('value') ||
-      ''
+      '';
   calendarValue.value = string;
 }
 
@@ -94,6 +94,7 @@ function applySelectionAndClose() {
   emit('apply', { ...selection.value });
   document.getElementById(POPOVER_ID)?.hidePopover?.();
 }
+
 </script>
 
 <template>
