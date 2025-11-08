@@ -8,5 +8,3 @@ use App\Http\Controllers\V1\SportController;
 
 /** Get sports */
 $router->get('/sport', [SportController::class, 'index']);
-/** Get sport by id */
-$router->get('/sport/{id}', [SportController::class, 'show']);
