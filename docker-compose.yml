@@ -33,6 +33,7 @@ services:
 
     volumes:
       - ./api:/app/api:delegated
+      - api_vendor:/app/api/vendor
       - ./storage:/app/storage
     depends_on:
       - db
@@ -55,3 +56,4 @@ services:
 
 volumes:
   db_data:
+  api_vendor:
