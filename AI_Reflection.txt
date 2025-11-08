@@ -1,0 +1,91 @@
+AI Usage Reflection
+
+1. What I Implemented Myself
+
+The core solution was planned and implemented by me.
+
+Architecture & Infrastructure
+- I designed a decoupled architecture where the backend API and frontend are separate. This makes it easier to scale, deploy independently, and swap or extend the UI without changing the API.
+- I defined how the frontend communicates with the backend: routes, payloads, token usage, and error handling.
+- I created a Docker-based setup so the entire stack (API, database, frontend, Nginx) can be started and tested consistently with docker compose.
+
+Backend & Domain Logic
+- I implemented a lightweight PHP 8 API instead of using a full framework, to demonstrate understanding of HTTP handling, routing, controllers, and clean separation of concerns.
+- I designed and implemented the database schema for sports, competitions, teams, venues, events, and their relationships.
+- I wrote the core business logic:
+  - Creating and listing events (and related data lookups).
+  - Validating required fields and allowed statuses.
+  - Ensuring valid date and time ranges.
+  - Joining related entities efficiently instead of per-row queries.
+- I structured the project into clear modules (controllers, services, database layer, helpers) to keep it maintainable.
+
+Integration & Frontend Usage
+- I wired the frontend to use my API instead of mock data.
+- I implemented the flow to load and display events from the backend, including basic loading and error handling states.
+- I verified the end-to-end behavior inside the Docker environment.
+
+All essential behavior — architecture, schema, API design, routing, validation and integration — is my own work, and I can explain it in detail.
+
+2. How AI Influenced the Code
+
+I used AI tools (ChatGPT and JetBrains AI inside the IDE) as assistants for small, well-defined tasks. They did not design the project and did not implement the full solution.
+
+AI-assisted areas included:
+- Helper / utility snippets:
+  - Suggestions for regex-based helpers and small core functions, which I adapted to my structure.
+- Configuration support:
+  - Example Nginx configuration patterns to route `/api` to PHP-FPM and serve the frontend.
+  - Example Docker/Docker Compose setups to organize services.
+  - Guidance for Vite config and environment variables when pointing the frontend to the API.
+- Frontend logic hints:
+  - Suggestions for date/time conversion from API data to calendar-friendly formats.
+  - Guidance for the day-view layout logic to render events without overlap.
+- Text & docs:
+  - Help drafting and polishing README sections and some user-facing messages.
+
+In all these cases, I:
+- Treated AI output as suggestions only.
+- Edited, refactored, or rewrote code to match my architecture, naming and standards.
+- Removed anything I did not fully understand.
+
+3. How I Evaluated AI Suggestions
+
+For every AI-assisted snippet I:
+- Checked correctness against my actual routes, schema, and environment.
+- Ensured no hidden dependencies or mismatches with my lightweight framework.
+- Tested behavior within my Docker setup.
+
+Unclear or over-complicated proposals were discarded.
+
+4. Why I Made These Technical Decisions
+
+- Decoupled API + frontend:
+  To mirror real-world architectures, make scaling easier, and highlight backend/API skills explicitly.
+- Lightweight PHP API:
+  To show understanding of core web concepts (routing, HTTP, validation, SQL) without relying on generated boilerplate.
+- Relational database design:
+  The domain (sports, events, teams, venues, competitions) fits a normalized relational model with clear foreign keys.
+- Dockerized setup:
+  To let reviewers run and inspect everything reliably with minimal setup.
+
+5. If I Had More Time
+
+If I had more time, I would:
+
+- Make the frontend fully responsive for mobile and tablet layouts.
+- Implement full event management from the UI:
+  - Create, update, and delete events directly from the frontend.
+- Add pagination and better list handling for large event sets.
+- Introduce a caching layer for frequent reads to reduce database load.
+- Add authentication and login-related features:
+  - Basic login flow.
+  - Frontend session/token validation.
+  - Protecting API endpoints accordingly.
+
+6. Honor Statement
+
+I confirm that:
+- The core design and implementation are my own work and reflect my understanding.
+- AI tools (ChatGPT, JetBrains AI) were used only for guidance, examples, and wording support.
+- All AI-influenced code was reviewed, adapted, and verified by me.
+- I can explain and modify any part of this project if asked.
